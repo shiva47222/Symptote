@@ -14,8 +14,6 @@
       min-height: 100vh;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
-
-    /* ── Layout ── */
     .sw {
       display: flex;
       flex-direction: column;
@@ -94,209 +92,191 @@
 </div>
 
 <script>
-
 const canvas = document.getElementById('sym');
 const ctx = canvas.getContext('2d');
 const W = 720, H = 500;
 canvas.width = W; canvas.height = H;
 
-const isDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
+const isDark = () => false; // locked to light; color-scheme meta prevents dark mode
+
 function lerpHex(c1,c2,t){
   const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
   const a=p(c1),b=p(c2);
   return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`;
 }
-const c1=()=>isDark()?'#ff66ff':'#cc00aa';
-const c2=()=>isDark()?'#44aaff':'#0055cc';
-const bgU=a=>isDark()?`rgba(120,50,140,${a})`:`rgba(240,200,255,${a})`;
-const bgL=a=>isDark()?`rgba(30,70,140,${a})`:`rgba(190,215,255,${a})`;
-function bgMix(a){
-  const u=isDark()?[120,50,140]:[240,200,255],l=isDark()?[30,70,140]:[190,215,255];
-  return `rgba(${(u[0]+l[0])>>1},${(u[1]+l[1])>>1},${(u[2]+l[2])>>1},${a})`;
-}
 
-const N=300;
-const meetFrac=0.63;
-const ts=Array.from({length:N+1},(_,i)=>i/N);
+const c1 = () => '#cc00aa';
+const c2 = () => '#0055cc';
+const bgU = () => [240, 200, 255];
+const bgL = () => [190, 215, 255];
+function bgMix(){ const u=bgU(),l=bgL(); return [(u[0]+l[0])>>1,(u[1]+l[1])>>1,(u[2]+l[2])>>1]; }
 
-// Slider values
+const N = 300, meetFrac = 0.63;
+const ts = Array.from({length: N+1}, (_,i) => i/N);
+
 let p1Agency=0.3, p1Circum=0.3, p2Agency=0.3, p2Circum=0.3;
 
-// ── Distortion functions ─────────────────────────────────────────────────────
-// Agency: sharp inflection points — sum of sigmoid steps at fixed t locations
-// Circumstance: gentle undulations — low-freq sine waves
-// Each returns a scalar added to the base curve value (before clamping)
-// sign: +1 = pushes away from asymptote, -1 = pulls toward
+function seededRand(seed, idx){
+  let x = Math.sin(seed*9301 + idx*49297 + 233)*93177;
+  return x - Math.floor(x);
+}
 
-const agencyKnots = [0.18, 0.38, 0.62, 0.81]; // t positions of sharp events
-const agencySigns = [1, -1, 1, -1];             // alternating push/pull
-const sharpness = 28;
-
-function agencyDistortion(t, strength) {
-  if (strength < 0.001) return 0;
+function agencyDistortion(t, strength, personSeed){
+  if(strength < 0.001) return 0;
   let d = 0;
-  for (let i = 0; i < agencyKnots.length; i++) {
-    const k = agencyKnots[i];
-    const s = agencySigns[i];
-    // sigmoid centred at k
-    const sig = 1/(1+Math.exp(-sharpness*(t-k)));
-    // contribution: a step of height strength*0.35, positive or negative
-    d += s * strength * 0.38 * (sig - 0.5);
+  const sharpness = 28;
+  for(let i=0; i<4; i++){
+    const knotPos = 0.1 + seededRand(personSeed, i*3)*0.8;
+    const sign = seededRand(personSeed, i*3+1) > 0.5 ? 1 : -1;
+    const mag = 0.3 + seededRand(personSeed, i*3+2)*0.2;
+    const sig = 1/(1+Math.exp(-sharpness*(t-knotPos)));
+    d += sign * strength * mag * (sig - 0.5);
   }
   return d;
 }
 
-// Different knots/phases per person for circumstance
-const circumFreqs = [[4.1, 7.3], [5.7, 9.1]];
-const circumPhases= [[0.0, 1.2], [0.8, 2.4]];
-
-function circumDistortion(t, strength, personIdx) {
-  if (strength < 0.001) return 0;
-  const freqs  = circumFreqs[personIdx];
-  const phases = circumPhases[personIdx];
+function circumDistortion(t, strength, personSeed){
+  if(strength < 0.001) return 0;
   let d = 0;
-  for (let i = 0; i < freqs.length; i++) {
-    d += Math.sin(t * freqs[i] * Math.PI + phases[i]) * strength * 0.22;
+  for(let i=0; i<3; i++){
+    const freq = 3 + seededRand(personSeed, 100+i*3)*8;
+    const phase = seededRand(personSeed, 100+i*3+1)*Math.PI*2;
+    const sign = seededRand(personSeed, 100+i*3+2) > 0.5 ? 1 : -1;
+    const amp = 0.15 + seededRand(personSeed, 100+i*3+1)*0.1;
+    d += sign * Math.sin(t*freq*Math.PI + phase) * strength * amp;
   }
   return d;
 }
 
-// ── Base asymptote & curve shapes ────────────────────────────────────────────
-// Meet asymptote: a gentle arc (not linear)
 function meetAsym(t){ return 0.18*Math.sin(t*Math.PI)*0.5 + 0.06*t - 0.04; }
-
 function baseMeetPink(t){ const a=meetAsym(t); return a+(1-a)/(1+t*12); }
 function baseMeetBlue(t){ const a=meetAsym(t); return a+(-1-a)/(1+t*12); }
 
-// Apply distortions to a base curve value, pulling it back before meetFrac
-function applyDist(baseVal, asymVal, t, agency, circum, personIdx, side) {
-  // side: +1 = pink (approaches from above), -1 = blue (approaches from below)
-  const da = agencyDistortion(t, agency) * side;
-  const dc = circumDistortion(t, circum, personIdx);
-  // distortions act on gap between curve and asymptote
+function applyDist(baseVal, asymVal, t, agency, circum, agSeed, cirSeed, side){
+  const da = agencyDistortion(t, agency, agSeed) * side;
+  const dc = circumDistortion(t, circum, cirSeed);
   const gap = baseVal - asymVal;
   const distorted = gap + da + dc;
-  // keep on correct side: gap must retain sign
   const clamped = side > 0 ? Math.max(0.02, distorted) : Math.min(-0.02, distorted);
   return asymVal + clamped;
 }
 
-function meetPink(t){
-  const base=baseMeetPink(t), asym=meetAsym(t);
-  if(t>meetFrac) return asym;
-  return applyDist(base,asym,t,p1Agency,p1Circum,0,+1);
+function missAsymVal(ci, t){
+  const s = (idx) => seededRand(ci+7, idx);
+  const type = Math.floor(s(0)*3);
+  if(type===0) return 0.5 - 1.1/(1+Math.exp(-14*(t-(0.25+s(1)*0.25))));
+  if(type===1) return (-0.15+s(2)*0.1) + (0.3+s(3)*0.2)*Math.exp(-5*t)*Math.sin(t*(15+s(4)*8));
+  return (-0.35+s(5)*0.2) + (0.7+s(6)*0.4)*(t<0.45 ? t/0.45 : 1-(t-0.45)/0.55);
 }
-function meetBlue(t){
-  const base=baseMeetBlue(t), asym=meetAsym(t);
-  if(t>meetFrac) return asym;
-  return applyDist(base,asym,t,p2Agency,p2Circum,1,-1);
+function baseMissPink(ci,t){ const a=missAsymVal(ci,t), k=7+seededRand(ci+3,0)*6; return a+(1-a)/(1+t*k); }
+function baseMissBlue(ci,t){ const a=missAsymVal(ci,t), k=7+seededRand(ci+3,1)*6; return a+(-1-a)/(1+t*k); }
+function missAngle(ci){ return Math.PI/2 + seededRand(ci+11,0)*Math.PI*0.9; }
+function missPlane(ci,t,v){ const th=missAngle(ci); return [t, v*Math.sin(th), v*Math.cos(th)]; }
+
+const TOTAL_CASES = 20;
+let currentCase = 0;
+let caseOrder = [];
+let caseOrderIdx = 0;
+
+function buildCaseOrder(){
+  const arr = Array.from({length: TOTAL_CASES}, (_,i) => i);
+  for(let i=arr.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+caseOrder = buildCaseOrder();
+
+function nextCase(){
+  caseOrderIdx = (caseOrderIdx+1) % TOTAL_CASES;
+  if(caseOrderIdx === 0) caseOrder = buildCaseOrder();
+  currentCase = caseOrder[caseOrderIdx];
 }
 
-// Miss cases
-const missAngles=[Math.PI/2, Math.PI/2+Math.PI*0.42, Math.PI/2+Math.PI*0.72];
-const missAsymFns=[
-  t => 0.55 - 1.1/(1+Math.exp(-14*(t-0.35))),
-  t => -0.18 + 0.45*Math.exp(-5*t)*Math.sin(t*18),
-  t => -0.30 + 0.90*(t<0.45 ? t/0.45 : 1-(t-0.45)/0.55),
-];
-const missCurveK=[ {kP:9,kB:9}, {kP:7,kB:11}, {kP:11,kB:7} ];
-
-function missAsymVal(ci,t){ return missAsymFns[ci](t); }
-function baseMissPink(ci,t){ const a=missAsymVal(ci,t); return a+(1-a)/(1+t*missCurveK[ci].kP); }
-function baseMissBlue(ci,t){ const a=missAsymVal(ci,t); return a+(-1-a)/(1+t*missCurveK[ci].kB); }
-
-function missPink(ci,t){
-  const base=baseMissPink(ci,t), asym=missAsymVal(ci,t);
-  return applyDist(base,asym,t,p1Agency,p1Circum,0,+1);
-}
-function missBlue(ci,t){
-  const base=baseMissBlue(ci,t), asym=missAsymVal(ci,t);
-  return applyDist(base,asym,t,p2Agency,p2Circum,1,-1);
-}
-function missPlane(ci,t,v){ const th=missAngles[ci]; return [t,v*Math.sin(th),v*Math.cos(th)]; }
-
-// ── Projection ───────────────────────────────────────────────────────────────
 let rotX=0.38, rotY=-0.55;
-let dragging=false, lastMX=0, lastMY=0;
+let dragging=false, dragMoved=false, lastMX=0, lastMY=0, downMX=0, downMY=0;
 const cx=W/2, cy=H/2+10, fov=420;
 
 function rotate([x,y,z]){
-  const cY=Math.cos(rotY),sY=Math.sin(rotY);
-  const x1=x*cY+z*sY,z1=-x*sY+z*cY;
-  const cX=Math.cos(rotX),sX=Math.sin(rotX);
+  const cY=Math.cos(rotY), sY=Math.sin(rotY);
+  const x1=x*cY+z*sY, z1=-x*sY+z*cY;
+  const cX=Math.cos(rotX), sX=Math.sin(rotX);
   return [x1, y*cX-z1*sX, y*sX+z1*cX];
 }
-function project([x,y,z]){
-  const sc=180,d=fov/(fov+z*sc*0.5+sc*0.8);
+function project(pt){
+  const [x,y,z]=rotate(pt);
+  const sc=180, d=fov/(fov+z*sc*0.5+sc*0.8);
   return [cx+x*sc*d, cy-y*sc*d];
 }
 function projectAll(pts){ return pts.map(p=>project(p)); }
 
-function polyline(pts,style,w,alpha=1,dash=[]){
-  if(alpha<=0)return;
-  ctx.save(); ctx.globalAlpha=alpha; ctx.strokeStyle=style;
-  ctx.lineWidth=w; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.setLineDash(dash);
-  ctx.beginPath(); pts.forEach(([sx,sy],i)=>i===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy));
-  ctx.stroke(); ctx.restore();
+function polyline(pts, style, w, alpha=1, dash=[]){
+  if(alpha<=0 || pts.length<2) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = style;
+  ctx.lineWidth = w;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  pts.forEach(([sx,sy],i) => i===0 ? ctx.moveTo(sx,sy) : ctx.lineTo(sx,sy));
+  ctx.stroke();
+  ctx.restore();
 }
-function fillQuad(p0,p1,p2,p3,style,alpha){
-  if(alpha<=0)return;
-  ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=style;
-  ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.lineTo(p3[0],p3[1]); ctx.closePath(); ctx.fill(); ctx.restore();
+function fillQuad(p0,p1,p2,p3, r,g,b, alpha){
+  if(alpha<=0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.beginPath();
+  ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]);
+  ctx.lineTo(p2[0],p2[1]); ctx.lineTo(p3[0],p3[1]);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
-// ── State ────────────────────────────────────────────────────────────────────
-let active='meet', missIdx=0;
-function nextMissIdx(){ const o=[0,1,2].filter(i=>i!==missIdx); return o[Math.floor(Math.random()*o.length)]; }
-
-// ── Draw ─────────────────────────────────────────────────────────────────────
 function draw(){
   ctx.clearRect(0,0,W,H);
-  const dark=isDark();
-  const labelCol=dark?'rgba(255,255,255,0.30)':'rgba(0,0,0,0.28)';
-  const axisCol =dark?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.18)';
-  const wa=dark?0.26:0.48, ghost=0.11, ghostBg=0.07;
-  const bgSteps=60, mIdx=Math.round(meetFrac*N);
-  const isMeet=active==='meet';
 
-  // Recompute curves with current slider values
-  const meetPinkPts  = ts.map(t=>[t, meetPink(t), 0]);
-  const meetBluePts  = ts.map(t=>[t, meetBlue(t), 0]);
-  const meetAsymAllPts = ts.map(t=>[t, meetAsym(t), 0]);
-  const missDataLive = [0,1,2].map(ci=>({
-    pink: ts.map(t=>missPlane(ci,t,missPink(ci,t))),
-    blue: ts.map(t=>missPlane(ci,t,missBlue(ci,t))),
-    asym: ts.map(t=>missPlane(ci,t,missAsymVal(ci,t))),
-    bgTop:ts.map(t=>missPlane(ci,t,1)),
-    bgBot:ts.map(t=>missPlane(ci,t,-1)),
-  }));
+  const labelCol = 'rgba(0,0,0,0.28)';
+  const axisCol  = 'rgba(0,0,0,0.18)';
+  const wa    = 0.48;
+  const ghost = 0.09;
+  const bgSteps = 60;
+  const mIdx = Math.round(meetFrac*N);
+  const isMeet = currentCase === 0;
+  const missCI = currentCase - 1;
 
-  // Backgrounds
-  // meet
-  {
-    const pa=isMeet?wa:ghostBg;
-    for(let i=0;i<bgSteps;i++){
+  const [uR,uG,uB] = bgU();
+  const [lR,lG,lB] = bgL();
+  const [mR,mG,mB] = bgMix();
+
+  // Active background only
+  if(isMeet){
+    for(let i=0; i<bgSteps; i++){
       const i0=Math.floor(i/bgSteps*N), i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
-      const t0=ts[i0],t1=ts[i1];
-      const top0=project([t0,1,0]),top1=project([t1,1,0]);
-      const bot0=project([t0,-1,0]),bot1=project([t1,-1,0]);
+      const top0=project([ts[i0],1,0]), top1=project([ts[i1],1,0]);
+      const bot0=project([ts[i0],-1,0]), bot1=project([ts[i1],-1,0]);
       if(i0<=mIdx){
-        const a0=project([t0,meetAsym(t0),0]),a1=project([t1,meetAsym(t1),0]);
-        fillQuad(top0,top1,a1,a0,bgU(1),pa);
-        fillQuad(a0,a1,bot1,bot0,bgL(1),pa);
+        const a0=project([ts[i0],meetAsym(ts[i0]),0]), a1=project([ts[i1],meetAsym(ts[i1]),0]);
+        fillQuad(top0,top1,a1,a0, uR,uG,uB, wa);
+        fillQuad(a0,a1,bot1,bot0, lR,lG,lB, wa);
       } else {
-        fillQuad(top0,top1,bot1,bot0,bgMix(1),pa);
+        fillQuad(top0,top1,bot1,bot0, mR,mG,mB, wa);
       }
     }
-  }
-  // miss planes
-  for(let ci=0;ci<3;ci++){
-    const pa=(!isMeet&&ci===missIdx)?wa:ghostBg;
-    const d=missDataLive[ci];
-    for(let i=0;i<bgSteps;i++){
-      const i0=Math.floor(i/bgSteps*N),i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
-      fillQuad(project(d.bgTop[i0]),project(d.bgTop[i1]),project(d.asym[i1]),project(d.asym[i0]),bgU(1),pa);
-      fillQuad(project(d.asym[i0]),project(d.asym[i1]),project(d.bgBot[i1]),project(d.bgBot[i0]),bgL(1),pa);
+  } else {
+    for(let i=0; i<bgSteps; i++){
+      const i0=Math.floor(i/bgSteps*N), i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
+      const av0=missAsymVal(missCI,ts[i0]), av1=missAsymVal(missCI,ts[i1]);
+      const top0=project(missPlane(missCI,ts[i0],1)), top1=project(missPlane(missCI,ts[i1],1));
+      const bot0=project(missPlane(missCI,ts[i0],-1)), bot1=project(missPlane(missCI,ts[i1],-1));
+      const a0=project(missPlane(missCI,ts[i0],av0)), a1=project(missPlane(missCI,ts[i1],av1));
+      fillQuad(top0,top1,a1,a0, uR,uG,uB, wa);
+      fillQuad(a0,a1,bot1,bot0, lR,lG,lB, wa);
     }
   }
 
@@ -304,59 +284,83 @@ function draw(){
   const origin=project([0,0,0]), axX=project([1.12,0,0]);
   ctx.save(); ctx.strokeStyle=axisCol; ctx.lineWidth=1; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(origin[0],origin[1]); ctx.lineTo(axX[0],axX[1]); ctx.stroke(); ctx.restore();
-  ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif'; ctx.fillStyle=labelCol;
-  ctx.textAlign='center';
-  ctx.fillText('Time',axX[0]+18,axX[1]+4);
-  ctx.fillText('t = 0',origin[0]-22,origin[1]+4);
+  ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';
+  ctx.fillStyle=labelCol; ctx.textAlign='center';
+  ctx.fillText('Time', axX[0]+18, axX[1]+4);
+  ctx.fillText('t = 0', origin[0]-22, origin[1]+4);
 
-  // Projected meet curves
-  const meetPink2D  = projectAll(meetPinkPts);
-  const meetBlue2D  = projectAll(meetBluePts);
-  const meetAsym2D  = projectAll(meetAsymAllPts);
-  const meetPinkPre = meetPink2D.slice(0,mIdx+1).concat([project([meetFrac,meetAsym(meetFrac),0])]);
-  const meetBluePre = meetBlue2D.slice(0,mIdx+1).concat([project([meetFrac,meetAsym(meetFrac),0])]);
-  const meetAsymPre = meetAsym2D.slice(0,mIdx+1);
-  const mergedPts   = meetAsym2D.slice(mIdx);
-  const colMix=lerpHex(c1(),c2(),0.5);
-  const asymMeetCol =dark?'rgba(255,180,255,0.55)':'rgba(140,0,140,0.35)';
-  const asymMissCol=[
-    dark?'rgba(120,200,255,0.55)':'rgba(0,80,200,0.35)',
-    dark?'rgba(120,255,180,0.55)':'rgba(0,160,80,0.35)',
-    dark?'rgba(255,220,100,0.55)':'rgba(160,100,0,0.35)',
-  ];
+  // Precompute meet curves
+  const p1AgS=currentCase*100+1, p1CiS=currentCase*100+2;
+  const p2AgS=currentCase*100+3, p2CiS=currentCase*100+4;
+  const meetPinkPts = ts.map(t=>{
+    const base=baseMeetPink(t), asym=meetAsym(t);
+    if(t>meetFrac) return [t,asym,0];
+    return [t, applyDist(base,asym,t,p1Agency,p1Circum,p1AgS,p1CiS,+1), 0];
+  });
+  const meetBluePts = ts.map(t=>{
+    const base=baseMeetBlue(t), asym=meetAsym(t);
+    if(t>meetFrac) return [t,asym,0];
+    return [t, applyDist(base,asym,t,p2Agency,p2Circum,p2AgS,p2CiS,-1), 0];
+  });
+  const meetAsymPts = ts.map(t=>[t,meetAsym(t),0]);
+  const mergedPts = meetAsymPts.slice(mIdx);
+  const colMix = lerpHex(c1(), c2(), 0.5);
+  const asymMeetCol = 'rgba(140,0,140,0.35)';
 
   if(isMeet){
-    for(let ci=0;ci<3;ci++){
-      polyline(projectAll(missDataLive[ci].pink),c1(),1.1,ghost);
-      polyline(projectAll(missDataLive[ci].blue),c2(),1.1,ghost);
+    // Ghost all miss curves
+    for(let ci=0; ci<19; ci++){
+      const s1=ci*100+1, s2=ci*100+2, s3=ci*100+3, s4=ci*100+4;
+      const mpPts = ts.map(t=>{ const base=baseMissPink(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,p1Agency,p1Circum,s1,s2,+1)); });
+      const mbPts = ts.map(t=>{ const base=baseMissBlue(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,p2Agency,p2Circum,s3,s4,-1)); });
+      polyline(projectAll(mpPts), c1(), 1, ghost);
+      polyline(projectAll(mbPts), c2(), 1, ghost);
     }
-    polyline(meetAsymPre,asymMeetCol,1.2,1,[5,9]);
-    polyline(meetPinkPre,c1(),2.2,1);
-    polyline(meetBluePre,c2(),2.2,1);
-    polyline(mergedPts,colMix,2.5,1);
-    const dot=project([meetFrac,meetAsym(meetFrac),0]);
-    ctx.beginPath(); ctx.arc(dot[0],dot[1],4.5,0,Math.PI*2); ctx.fillStyle=colMix; ctx.fill();
+    // Active meet curves
+    const meetPinkPre = meetPinkPts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
+    const meetBluePre = meetBluePts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
+    polyline(projectAll(meetAsymPts.slice(0,mIdx+1)), asymMeetCol, 1.2, 1, [5,9]);
+    polyline(projectAll(meetPinkPre), c1(), 2.2, 1);
+    polyline(projectAll(meetBluePre), c2(), 2.2, 1);
+    polyline(projectAll(mergedPts), colMix, 2.5, 1);
+    const dot = project([meetFrac, meetAsym(meetFrac), 0]);
+    ctx.beginPath(); ctx.arc(dot[0],dot[1],4.5,0,Math.PI*2);
+    ctx.fillStyle=colMix; ctx.fill();
     ctx.save(); ctx.globalAlpha=0.7;
-    ctx.fillStyle=dark?'rgba(255,150,255,0.9)':'rgba(160,0,160,0.65)';
-    ctx.font='10px -apple-system,BlinkMacSystemFont,sans-serif'; ctx.textAlign='center';
-    ctx.fillText('They meet',dot[0],dot[1]-11); ctx.restore();
+    ctx.fillStyle='rgba(160,0,160,0.65)';
+    ctx.font='10px -apple-system,BlinkMacSystemFont,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('They meet', dot[0], dot[1]-11);
+    ctx.restore();
   } else {
-    polyline(meetPinkPre,c1(),1.1,ghost);
-    polyline(meetBluePre,c2(),1.1,ghost);
-    polyline(mergedPts,colMix,1.1,ghost);
-    for(let ci=0;ci<3;ci++){
-      if(ci===missIdx) continue;
-      polyline(projectAll(missDataLive[ci].pink),c1(),1.1,ghost);
-      polyline(projectAll(missDataLive[ci].blue),c2(),1.1,ghost);
+    // Ghost meet curves
+    const meetPinkPre = meetPinkPts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
+    const meetBluePre = meetBluePts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
+    polyline(projectAll(meetPinkPre), c1(), 1, ghost);
+    polyline(projectAll(meetBluePre), c2(), 1, ghost);
+    polyline(projectAll(mergedPts), colMix, 1, ghost);
+    // Ghost other miss curves
+    for(let ci=0; ci<19; ci++){
+      if(ci===missCI) continue;
+      const s1=ci*100+1, s2=ci*100+2, s3=ci*100+3, s4=ci*100+4;
+      const mpPts = ts.map(t=>{ const base=baseMissPink(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,p1Agency,p1Circum,s1,s2,+1)); });
+      const mbPts = ts.map(t=>{ const base=baseMissBlue(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,p2Agency,p2Circum,s3,s4,-1)); });
+      polyline(projectAll(mpPts), c1(), 1, ghost);
+      polyline(projectAll(mbPts), c2(), 1, ghost);
     }
-    const d=missDataLive[missIdx];
-    polyline(projectAll(d.asym),asymMissCol[missIdx],1.2,1,[5,9]);
-    polyline(projectAll(d.pink),c1(),2.2,1);
-    polyline(projectAll(d.blue),c2(),2.2,1);
+    // Active miss curves
+    const s1=missCI*100+1, s2=missCI*100+2, s3=missCI*100+3, s4=missCI*100+4;
+    const asymMissCol = 'rgba(0,80,200,0.35)';
+    const asymMissPts = ts.map(t=>missPlane(missCI,t,missAsymVal(missCI,t)));
+    const activePinkPts = ts.map(t=>{ const base=baseMissPink(missCI,t),asym=missAsymVal(missCI,t); return missPlane(missCI,t,applyDist(base,asym,t,p1Agency,p1Circum,s1,s2,+1)); });
+    const activeBluePts = ts.map(t=>{ const base=baseMissBlue(missCI,t),asym=missAsymVal(missCI,t); return missPlane(missCI,t,applyDist(base,asym,t,p2Agency,p2Circum,s3,s4,-1)); });
+    polyline(projectAll(asymMissPts), asymMissCol, 1.2, 1, [5,9]);
+    polyline(projectAll(activePinkPts), c1(), 2.2, 1);
+    polyline(projectAll(activeBluePts), c2(), 2.2, 1);
   }
 }
 
-// ── Slider wiring ─────────────────────────────────────────────────────────────
+// Sliders
 function wireSlider(id, cb){
   document.getElementById(id).addEventListener('input', e=>{ cb(parseFloat(e.target.value)); draw(); });
 }
@@ -365,49 +369,52 @@ wireSlider('p1-circum', v=>{ p1Circum=v; });
 wireSlider('p2-agency', v=>{ p2Agency=v; });
 wireSlider('p2-circum', v=>{ p2Circum=v; });
 
-// Colour the person labels to match their curve
-document.getElementById('p1-label').style.color = isDark()?'#ff66ff':'#cc00aa';
-document.getElementById('p2-label').style.color = isDark()?'#44aaff':'#0055cc';
+document.getElementById('p1-label').style.color = '#cc00aa';
+document.getElementById('p2-label').style.color = '#0055cc';
 
-// ── Mouse/touch rotation ──────────────────────────────────────────────────────
-canvas.addEventListener('mousedown',e=>{dragging=true;lastMX=e.clientX;lastMY=e.clientY;});
-window.addEventListener('mousemove',e=>{
-  if(!dragging)return;
-  rotY+=(e.clientX-lastMX)*0.008; rotX+=(e.clientY-lastMY)*0.008;
-  rotX=Math.max(-Math.PI/2,Math.min(Math.PI/2,rotX));
-  lastMX=e.clientX; lastMY=e.clientY; draw();
+// Input handling
+canvas.addEventListener('mousedown', e=>{
+  dragging=true; dragMoved=false;
+  downMX=e.clientX; downMY=e.clientY;
+  lastMX=e.clientX; lastMY=e.clientY;
+  canvas.style.cursor='grabbing';
 });
-window.addEventListener('mouseup',()=>{dragging=false;});
-canvas.addEventListener('touchstart',e=>{dragging=true;lastMX=e.touches[0].clientX;lastMY=e.touches[0].clientY;},{passive:true});
-window.addEventListener('touchmove',e=>{
-  if(!dragging)return;
-  rotY+=(e.touches[0].clientX-lastMX)*0.008; rotX+=(e.touches[0].clientY-lastMY)*0.008;
-  rotX=Math.max(-Math.PI/2,Math.min(Math.PI/2,rotX));
-  lastMX=e.touches[0].clientX; lastMY=e.touches[0].clientY; draw();
-},{passive:true});
-window.addEventListener('touchend',()=>{dragging=false;});
-
-document.getElementById('btn-meet').addEventListener('click',()=>{
-  active='meet';
-  document.getElementById('btn-meet').classList.add('active');
-  document.getElementById('btn-miss').classList.remove('active');
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  if(Math.abs(e.clientX-downMX)>4 || Math.abs(e.clientY-downMY)>4) dragMoved=true;
+  rotY += (e.clientX-lastMX)*0.008;
+  rotX += (e.clientY-lastMY)*0.008;
+  rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+  lastMX=e.clientX; lastMY=e.clientY;
   draw();
 });
-document.getElementById('btn-miss').addEventListener('click',()=>{
-  if(active==='miss') missIdx=nextMissIdx();
-  active='miss';
-  document.getElementById('btn-miss').classList.add('active');
-  document.getElementById('btn-meet').classList.remove('active');
+window.addEventListener('mouseup', ()=>{
+  if(dragging && !dragMoved){ nextCase(); draw(); }
+  dragging=false;
+  canvas.style.cursor='default';
+});
+canvas.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  dragging=true; dragMoved=false;
+  lastMX=e.touches[0].clientX; lastMY=e.touches[0].clientY;
+  downMX=lastMX; downMY=lastMY;
+}, {passive:false});
+window.addEventListener('touchmove', e=>{
+  if(!dragging) return;
+  e.preventDefault();
+  if(Math.abs(e.touches[0].clientX-downMX)>6 || Math.abs(e.touches[0].clientY-downMY)>6) dragMoved=true;
+  rotY += (e.touches[0].clientX-lastMX)*0.008;
+  rotX += (e.touches[0].clientY-lastMY)*0.008;
+  rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+  lastMX=e.touches[0].clientX; lastMY=e.touches[0].clientY;
   draw();
+}, {passive:false});
+window.addEventListener('touchend', ()=>{
+  if(dragging && !dragMoved){ nextCase(); draw(); }
+  dragging=false;
 });
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{
-  document.getElementById('p1-label').style.color=isDark()?'#ff66ff':'#cc00aa';
-  document.getElementById('p2-label').style.color=isDark()?'#44aaff':'#0055cc';
-  draw();
-});
 draw();
-
 </script>
 
 </body>
