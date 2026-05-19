@@ -1,28 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" style="background: transparent; margin: 0; padding: 0;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>Symptote</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      background: transparent !important;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
 
-<style>
-  .sw{display:flex;flex-direction:column;align-items:center;padding:1.5rem 0 1rem;gap:16px;font-family:var(--font-sans);}
-  .st{font-size:13px;letter-spacing:0.12em;color:var(--color-text-tertiary);}
-  canvas#sym{display:block;width:100%;max-width:720px;cursor:grab;}
-  canvas#sym:active{cursor:grabbing;}
-  .sb{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
-  .sbtn{font-size:12px;letter-spacing:0.04em;padding:6px 16px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-secondary);cursor:pointer;transition:all 0.15s;}
-  .sbtn.active{background:var(--color-background-secondary);color:var(--color-text-primary);border-color:var(--color-border-primary);}
-  .controls{display:grid;grid-template-columns:1fr 1fr;gap:18px 32px;width:100%;max-width:600px;padding:0 8px;}
-  .person{display:flex;flex-direction:column;gap:10px;}
-  .person-label{font-size:11px;letter-spacing:0.08em;color:var(--color-text-tertiary);text-align:center;padding-bottom:2px;border-bottom:0.5px solid var(--color-border-secondary);}
-  .slider-row{display:flex;flex-direction:column;gap:3px;}
-  .slider-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--color-text-tertiary);}
-  .slider-name{font-size:10px;color:var(--color-text-secondary);text-align:center;}
-  input[type=range]{width:100%;accent-color:#cc88ff;cursor:pointer;}
-  .hint{font-size:11px;color:var(--color-text-tertiary);}
-</style>
+    /* ── Layout ── */
+    .sw {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem 0 1rem;
+      gap: 16px;
+    }
+    canvas#sym {
+      display: block;
+      width: 100%;
+      max-width: 720px;
+      touch-action: none;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 32px;
+      width: 100%;
+      max-width: 600px;
+      padding: 0 8px;
+    }
+    .person { display: flex; flex-direction: column; gap: 10px; }
+    .person-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: #888;
+      text-align: center;
+      padding-bottom: 2px;
+      border-bottom: 0.5px solid #ccc;
+    }
+    .slider-row { display: flex; flex-direction: column; gap: 3px; }
+    .slider-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #aaa;
+    }
+    .slider-name { font-size: 10px; color: #888; text-align: center; }
+    input[type=range] { width: 100%; accent-color: #cc88ff; cursor: pointer; }
+    .hint { font-size: 11px; color: #aaa; }
+  </style>
+</head>
+<body>
+
 <div class="sw">
-  <div class="st">Symptote</div>
   <canvas id="sym"></canvas>
-  <div class="sb">
-    <button class="sbtn active" id="btn-meet">They Meet</button>
-    <button class="sbtn" id="btn-miss">They Don't Meet</button>
-  </div>
   <div class="controls">
     <div class="person">
       <div class="person-label" id="p1-label">Person 1</div>
@@ -51,9 +90,11 @@
       </div>
     </div>
   </div>
-  <div class="hint">Drag to rotate</div>
+  <div class="hint">Drag to rotate · tap to change story</div>
 </div>
+
 <script>
+
 const canvas = document.getElementById('sym');
 const ctx = canvas.getContext('2d');
 const W = 720, H = 500;
@@ -366,4 +407,8 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>
   draw();
 });
 draw();
+
 </script>
+
+</body>
+</html>
