@@ -1,38 +1,70 @@
 
 <style>
-  .sw{display:flex;flex-direction:column;align-items:center;padding:1.5rem 0 1rem;gap:14px;}
-  .st{font-size:13px;letter-spacing:0.12em;color:var(--color-text-tertiary);font-family:var(--font-sans);}
+  .sw{display:flex;flex-direction:column;align-items:center;padding:1.5rem 0 1rem;gap:16px;font-family:var(--font-sans);}
+  .st{font-size:13px;letter-spacing:0.12em;color:var(--color-text-tertiary);}
   canvas#sym{display:block;width:100%;max-width:720px;cursor:grab;}
   canvas#sym:active{cursor:grabbing;}
   .sb{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
-  .sbtn{font-family:var(--font-sans);font-size:12px;letter-spacing:0.04em;padding:6px 16px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-secondary);cursor:pointer;transition:all 0.15s;}
+  .sbtn{font-size:12px;letter-spacing:0.04em;padding:6px 16px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-secondary);cursor:pointer;transition:all 0.15s;}
   .sbtn.active{background:var(--color-background-secondary);color:var(--color-text-primary);border-color:var(--color-border-primary);}
-  .hint{font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-sans);}
+  .controls{display:grid;grid-template-columns:1fr 1fr;gap:18px 32px;width:100%;max-width:600px;padding:0 8px;}
+  .person{display:flex;flex-direction:column;gap:10px;}
+  .person-label{font-size:11px;letter-spacing:0.08em;color:var(--color-text-tertiary);text-align:center;padding-bottom:2px;border-bottom:0.5px solid var(--color-border-secondary);}
+  .slider-row{display:flex;flex-direction:column;gap:3px;}
+  .slider-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--color-text-tertiary);}
+  .slider-name{font-size:10px;color:var(--color-text-secondary);text-align:center;}
+  input[type=range]{width:100%;accent-color:#cc88ff;cursor:pointer;}
+  .hint{font-size:11px;color:var(--color-text-tertiary);}
 </style>
 <div class="sw">
   <div class="st">Symptote</div>
   <canvas id="sym"></canvas>
   <div class="sb">
     <button class="sbtn active" id="btn-meet">They Meet</button>
-    <button class="sbtn" id="btn-miss1">They Don't Meet</button>
-    <button class="sbtn" id="btn-miss2">They Don't Meet Either</button>
+    <button class="sbtn" id="btn-miss">They Don't Meet</button>
+  </div>
+  <div class="controls">
+    <div class="person">
+      <div class="person-label" id="p1-label">Person 1</div>
+      <div class="slider-row">
+        <div class="slider-name">Agency</div>
+        <input type="range" id="p1-agency" min="0" max="1" step="0.01" value="0.3">
+        <div class="slider-labels"><span>less</span><span>more</span></div>
+      </div>
+      <div class="slider-row">
+        <div class="slider-name">Circumstance</div>
+        <input type="range" id="p1-circum" min="0" max="1" step="0.01" value="0.3">
+        <div class="slider-labels"><span>less</span><span>more</span></div>
+      </div>
+    </div>
+    <div class="person">
+      <div class="person-label" id="p2-label">Person 2</div>
+      <div class="slider-row">
+        <div class="slider-name">Agency</div>
+        <input type="range" id="p2-agency" min="0" max="1" step="0.01" value="0.3">
+        <div class="slider-labels"><span>less</span><span>more</span></div>
+      </div>
+      <div class="slider-row">
+        <div class="slider-name">Circumstance</div>
+        <input type="range" id="p2-circum" min="0" max="1" step="0.01" value="0.3">
+        <div class="slider-labels"><span>less</span><span>more</span></div>
+      </div>
+    </div>
   </div>
   <div class="hint">Drag to rotate</div>
 </div>
 <script>
 const canvas = document.getElementById('sym');
 const ctx = canvas.getContext('2d');
-const W = 720, H = 520;
+const W = 720, H = 500;
 canvas.width = W; canvas.height = H;
 
 const isDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
-
 function lerpHex(c1,c2,t){
   const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
   const a=p(c1),b=p(c2);
   return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`;
 }
-
 const c1=()=>isDark()?'#ff66ff':'#cc00aa';
 const c2=()=>isDark()?'#44aaff':'#0055cc';
 const bgU=a=>isDark()?`rgba(120,50,140,${a})`:`rgba(240,200,255,${a})`;
@@ -46,107 +78,165 @@ const N=300;
 const meetFrac=0.63;
 const ts=Array.from({length:N+1},(_,i)=>i/N);
 
-// x-y plane: they meet
-function meetAsym(t){ return 0.04*t; }
-function pinkMeet(t){ const a=meetAsym(t); return a+(1-a)/(1+t*12); }
-function blueMeet(t){ const a=meetAsym(t); return a+(-1-a)/(1+t*12); }
+// Slider values
+let p1Agency=0.3, p1Circum=0.3, p2Agency=0.3, p2Circum=0.3;
 
-// x-z plane: they don't meet (possibility 1)
-// The third axis is at angle in the x-z plane — 90deg from y
-function missAsym1(t){ return -0.12+0.03*t; }
-function pinkMiss1(t){ const a=missAsym1(t); return a+(1-a)/(1+t*8); }
-function blueMiss1(t){ const a=missAsym1(t); return a+(-1-a)/(1+t*8); }
+// ── Distortion functions ─────────────────────────────────────────────────────
+// Agency: sharp inflection points — sum of sigmoid steps at fixed t locations
+// Circumstance: gentle undulations — low-freq sine waves
+// Each returns a scalar added to the base curve value (before clamping)
+// sign: +1 = pushes away from asymptote, -1 = pulls toward
 
-// Third plane: rotated 45deg between y and z (w-axis = y*sin45 + z*cos45)
-// We represent this as a plane whose normal is perpendicular to x and to (0,1,1)/sqrt2
-// Points in this plane: [t, v*sin45, v*cos45] where v is the "distance" coordinate
-// Different asymptote — tighter approach, slightly different slope
-function missAsym2(t){ return 0.08-0.02*t; }
-function pinkMiss2(t){ const a=missAsym2(t); return a+(1-a)/(1+t*10); }
-function blueMiss2(t){ const a=missAsym2(t); return a+(-1-a)/(1+t*10); }
-const s45=Math.sin(Math.PI/4), c45=Math.cos(Math.PI/4);
-// map scalar v on third axis to [x,y,z]
-function plane3pt(t,v){ return [t, v*s45, v*c45]; }
-function plane3asym(t){ return plane3pt(t, missAsym2(t)); }
+const agencyKnots = [0.18, 0.38, 0.62, 0.81]; // t positions of sharp events
+const agencySigns = [1, -1, 1, -1];             // alternating push/pull
+const sharpness = 28;
 
-// Precompute
-const meetPink3D  = ts.map(t=>[t,pinkMeet(t),0]);
-const meetBlue3D  = ts.map(t=>[t,blueMeet(t),0]);
-const miss1Pink3D = ts.map(t=>[t,0,pinkMiss1(t)]);
-const miss1Blue3D = ts.map(t=>[t,0,blueMiss1(t)]);
-const miss2Pink3D = ts.map(t=>plane3pt(t,pinkMiss2(t)));
-const miss2Blue3D = ts.map(t=>plane3pt(t,blueMiss2(t)));
-const meetAsymPts  = ts.map(t=>[t,meetAsym(t),0]);
-const miss1AsymPts = ts.map(t=>[t,0,missAsym1(t)]);
-const miss2AsymPts = ts.map(t=>plane3asym(t));
+function agencyDistortion(t, strength) {
+  if (strength < 0.001) return 0;
+  let d = 0;
+  for (let i = 0; i < agencyKnots.length; i++) {
+    const k = agencyKnots[i];
+    const s = agencySigns[i];
+    // sigmoid centred at k
+    const sig = 1/(1+Math.exp(-sharpness*(t-k)));
+    // contribution: a step of height strength*0.35, positive or negative
+    d += s * strength * 0.38 * (sig - 0.5);
+  }
+  return d;
+}
 
+// Different knots/phases per person for circumstance
+const circumFreqs = [[4.1, 7.3], [5.7, 9.1]];
+const circumPhases= [[0.0, 1.2], [0.8, 2.4]];
+
+function circumDistortion(t, strength, personIdx) {
+  if (strength < 0.001) return 0;
+  const freqs  = circumFreqs[personIdx];
+  const phases = circumPhases[personIdx];
+  let d = 0;
+  for (let i = 0; i < freqs.length; i++) {
+    d += Math.sin(t * freqs[i] * Math.PI + phases[i]) * strength * 0.22;
+  }
+  return d;
+}
+
+// ── Base asymptote & curve shapes ────────────────────────────────────────────
+// Meet asymptote: a gentle arc (not linear)
+function meetAsym(t){ return 0.18*Math.sin(t*Math.PI)*0.5 + 0.06*t - 0.04; }
+
+function baseMeetPink(t){ const a=meetAsym(t); return a+(1-a)/(1+t*12); }
+function baseMeetBlue(t){ const a=meetAsym(t); return a+(-1-a)/(1+t*12); }
+
+// Apply distortions to a base curve value, pulling it back before meetFrac
+function applyDist(baseVal, asymVal, t, agency, circum, personIdx, side) {
+  // side: +1 = pink (approaches from above), -1 = blue (approaches from below)
+  const da = agencyDistortion(t, agency) * side;
+  const dc = circumDistortion(t, circum, personIdx);
+  // distortions act on gap between curve and asymptote
+  const gap = baseVal - asymVal;
+  const distorted = gap + da + dc;
+  // keep on correct side: gap must retain sign
+  const clamped = side > 0 ? Math.max(0.02, distorted) : Math.min(-0.02, distorted);
+  return asymVal + clamped;
+}
+
+function meetPink(t){
+  const base=baseMeetPink(t), asym=meetAsym(t);
+  if(t>meetFrac) return asym;
+  return applyDist(base,asym,t,p1Agency,p1Circum,0,+1);
+}
+function meetBlue(t){
+  const base=baseMeetBlue(t), asym=meetAsym(t);
+  if(t>meetFrac) return asym;
+  return applyDist(base,asym,t,p2Agency,p2Circum,1,-1);
+}
+
+// Miss cases
+const missAngles=[Math.PI/2, Math.PI/2+Math.PI*0.42, Math.PI/2+Math.PI*0.72];
+const missAsymFns=[
+  t => 0.55 - 1.1/(1+Math.exp(-14*(t-0.35))),
+  t => -0.18 + 0.45*Math.exp(-5*t)*Math.sin(t*18),
+  t => -0.30 + 0.90*(t<0.45 ? t/0.45 : 1-(t-0.45)/0.55),
+];
+const missCurveK=[ {kP:9,kB:9}, {kP:7,kB:11}, {kP:11,kB:7} ];
+
+function missAsymVal(ci,t){ return missAsymFns[ci](t); }
+function baseMissPink(ci,t){ const a=missAsymVal(ci,t); return a+(1-a)/(1+t*missCurveK[ci].kP); }
+function baseMissBlue(ci,t){ const a=missAsymVal(ci,t); return a+(-1-a)/(1+t*missCurveK[ci].kB); }
+
+function missPink(ci,t){
+  const base=baseMissPink(ci,t), asym=missAsymVal(ci,t);
+  return applyDist(base,asym,t,p1Agency,p1Circum,0,+1);
+}
+function missBlue(ci,t){
+  const base=baseMissBlue(ci,t), asym=missAsymVal(ci,t);
+  return applyDist(base,asym,t,p2Agency,p2Circum,1,-1);
+}
+function missPlane(ci,t,v){ const th=missAngles[ci]; return [t,v*Math.sin(th),v*Math.cos(th)]; }
+
+// ── Projection ───────────────────────────────────────────────────────────────
 let rotX=0.38, rotY=-0.55;
 let dragging=false, lastMX=0, lastMY=0;
-let active='meet';
-
-const cx=W/2, cy=H/2+20, fov=420;
+const cx=W/2, cy=H/2+10, fov=420;
 
 function rotate([x,y,z]){
   const cY=Math.cos(rotY),sY=Math.sin(rotY);
   const x1=x*cY+z*sY,z1=-x*sY+z*cY;
   const cX=Math.cos(rotX),sX=Math.sin(rotX);
-  const y2=y*cX-z1*sX,z2=y*sX+z1*cX;
-  return [x1,y2,z2];
+  return [x1, y*cX-z1*sX, y*sX+z1*cX];
 }
-function project(pt){
-  const [x,y,z]=rotate(pt);
-  const scale=180;
-  const depth=fov/(fov+z*scale*0.5+scale*0.8);
-  return [cx+x*scale*depth, cy-y*scale*depth, z];
+function project([x,y,z]){
+  const sc=180,d=fov/(fov+z*sc*0.5+sc*0.8);
+  return [cx+x*sc*d, cy-y*sc*d];
 }
 function projectAll(pts){ return pts.map(p=>project(p)); }
 
-function polyline(pts2d,style,width,alpha=1,dash=[]){
-  if(alpha<=0) return;
-  ctx.save();
-  ctx.globalAlpha=alpha;
-  ctx.strokeStyle=style;
-  ctx.lineWidth=width;
-  ctx.lineCap='round'; ctx.lineJoin='round';
-  ctx.setLineDash(dash);
-  ctx.beginPath();
-  pts2d.forEach(([sx,sy],i)=>i===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy));
-  ctx.stroke();
-  ctx.restore();
+function polyline(pts,style,w,alpha=1,dash=[]){
+  if(alpha<=0)return;
+  ctx.save(); ctx.globalAlpha=alpha; ctx.strokeStyle=style;
+  ctx.lineWidth=w; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.setLineDash(dash);
+  ctx.beginPath(); pts.forEach(([sx,sy],i)=>i===0?ctx.moveTo(sx,sy):ctx.lineTo(sx,sy));
+  ctx.stroke(); ctx.restore();
 }
 function fillQuad(p0,p1,p2,p3,style,alpha){
-  if(alpha<=0) return;
-  ctx.save();
-  ctx.globalAlpha=alpha;
-  ctx.fillStyle=style;
-  ctx.beginPath();
-  ctx.moveTo(p0[0],p0[1]);ctx.lineTo(p1[0],p1[1]);ctx.lineTo(p2[0],p2[1]);ctx.lineTo(p3[0],p3[1]);
-  ctx.closePath(); ctx.fill();
-  ctx.restore();
+  if(alpha<=0)return;
+  ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=style;
+  ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.lineTo(p3[0],p3[1]); ctx.closePath(); ctx.fill(); ctx.restore();
 }
 
+// ── State ────────────────────────────────────────────────────────────────────
+let active='meet', missIdx=0;
+function nextMissIdx(){ const o=[0,1,2].filter(i=>i!==missIdx); return o[Math.floor(Math.random()*o.length)]; }
+
+// ── Draw ─────────────────────────────────────────────────────────────────────
 function draw(){
   ctx.clearRect(0,0,W,H);
   const dark=isDark();
   const labelCol=dark?'rgba(255,255,255,0.30)':'rgba(0,0,0,0.28)';
-  const axisCol=dark?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.18)';
-  const wa=dark?0.26:0.48;
-  const ghostCurve=0.13;
-  const ghostBg=ghostCurve*0.55;
-  const bgSteps=60;
-  const mIdx=Math.round(meetFrac*N);
-
+  const axisCol =dark?'rgba(255,255,255,0.22)':'rgba(0,0,0,0.18)';
+  const wa=dark?0.26:0.48, ghost=0.11, ghostBg=0.07;
+  const bgSteps=60, mIdx=Math.round(meetFrac*N);
   const isMeet=active==='meet';
-  const isMiss1=active==='miss1';
-  const isMiss2=active==='miss2';
 
-  // Background fills
-  // x-y plane (meet)
+  // Recompute curves with current slider values
+  const meetPinkPts  = ts.map(t=>[t, meetPink(t), 0]);
+  const meetBluePts  = ts.map(t=>[t, meetBlue(t), 0]);
+  const meetAsymAllPts = ts.map(t=>[t, meetAsym(t), 0]);
+  const missDataLive = [0,1,2].map(ci=>({
+    pink: ts.map(t=>missPlane(ci,t,missPink(ci,t))),
+    blue: ts.map(t=>missPlane(ci,t,missBlue(ci,t))),
+    asym: ts.map(t=>missPlane(ci,t,missAsymVal(ci,t))),
+    bgTop:ts.map(t=>missPlane(ci,t,1)),
+    bgBot:ts.map(t=>missPlane(ci,t,-1)),
+  }));
+
+  // Backgrounds
+  // meet
   {
     const pa=isMeet?wa:ghostBg;
     for(let i=0;i<bgSteps;i++){
-      const i0=Math.floor(i/bgSteps*N),i1=Math.floor((i+1)/bgSteps*N);
-      const t0=ts[i0],t1=ts[Math.min(i1,N)];
+      const i0=Math.floor(i/bgSteps*N), i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
+      const t0=ts[i0],t1=ts[i1];
       const top0=project([t0,1,0]),top1=project([t1,1,0]);
       const bot0=project([t0,-1,0]),bot1=project([t1,-1,0]);
       if(i0<=mIdx){
@@ -158,146 +248,122 @@ function draw(){
       }
     }
   }
-  // x-z plane (miss1)
-  {
-    const pa=isMiss1?wa:ghostBg;
+  // miss planes
+  for(let ci=0;ci<3;ci++){
+    const pa=(!isMeet&&ci===missIdx)?wa:ghostBg;
+    const d=missDataLive[ci];
     for(let i=0;i<bgSteps;i++){
-      const i0=Math.floor(i/bgSteps*N),i1=Math.floor((i+1)/bgSteps*N);
-      const t0=ts[i0],t1=ts[Math.min(i1,N)];
-      const top0=project([t0,0,1]),top1=project([t1,0,1]);
-      const bot0=project([t0,0,-1]),bot1=project([t1,0,-1]);
-      const a0=project([t0,0,missAsym1(t0)]),a1=project([t1,0,missAsym1(t1)]);
-      fillQuad(top0,top1,a1,a0,bgU(1),pa);
-      fillQuad(a0,a1,bot1,bot0,bgL(1),pa);
-    }
-  }
-  // diagonal plane (miss2) — at 45deg between y and z
-  {
-    const pa=isMiss2?wa:ghostBg;
-    for(let i=0;i<bgSteps;i++){
-      const i0=Math.floor(i/bgSteps*N),i1=Math.floor((i+1)/bgSteps*N);
-      const t0=ts[i0],t1=ts[Math.min(i1,N)];
-      const top0=project(plane3pt(t0,1)),top1=project(plane3pt(t1,1));
-      const bot0=project(plane3pt(t0,-1)),bot1=project(plane3pt(t1,-1));
-      const a0=project(plane3asym(t0)),a1=project(plane3asym(t1));
-      fillQuad(top0,top1,a1,a0,bgU(1),pa);
-      fillQuad(a0,a1,bot1,bot0,bgL(1),pa);
+      const i0=Math.floor(i/bgSteps*N),i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
+      fillQuad(project(d.bgTop[i0]),project(d.bgTop[i1]),project(d.asym[i1]),project(d.asym[i0]),bgU(1),pa);
+      fillQuad(project(d.asym[i0]),project(d.asym[i1]),project(d.bgBot[i1]),project(d.bgBot[i0]),bgL(1),pa);
     }
   }
 
-  // x-axis only
-  const origin=project([0,0,0]);
-  const axX=project([1.12,0,0]);
-  ctx.save();
-  ctx.strokeStyle=axisCol; ctx.lineWidth=1; ctx.setLineDash([]);
-  ctx.beginPath(); ctx.moveTo(origin[0],origin[1]); ctx.lineTo(axX[0],axX[1]); ctx.stroke();
-  ctx.restore();
-  ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif';
-  ctx.fillStyle=labelCol;
+  // Time axis
+  const origin=project([0,0,0]), axX=project([1.12,0,0]);
+  ctx.save(); ctx.strokeStyle=axisCol; ctx.lineWidth=1; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(origin[0],origin[1]); ctx.lineTo(axX[0],axX[1]); ctx.stroke(); ctx.restore();
+  ctx.font='11px -apple-system,BlinkMacSystemFont,sans-serif'; ctx.fillStyle=labelCol;
   ctx.textAlign='center';
-  ctx.fillText('Time',axX[0]+16,axX[1]+4);
-  ctx.fillText('t = 0',origin[0]-20,origin[1]+4);
+  ctx.fillText('Time',axX[0]+18,axX[1]+4);
+  ctx.fillText('t = 0',origin[0]-22,origin[1]+4);
 
-  // Projected curves
-  const meetPink2D  = projectAll(meetPink3D);
-  const meetBlue2D  = projectAll(meetBlue3D);
-  const miss1Pink2D = projectAll(miss1Pink3D);
-  const miss1Blue2D = projectAll(miss1Blue3D);
-  const miss2Pink2D = projectAll(miss2Pink3D);
-  const miss2Blue2D = projectAll(miss2Blue3D);
-  const meetAsym2D  = projectAll(meetAsymPts);
-  const miss1Asym2D = projectAll(miss1AsymPts);
-  const miss2Asym2D = projectAll(miss2AsymPts);
-
+  // Projected meet curves
+  const meetPink2D  = projectAll(meetPinkPts);
+  const meetBlue2D  = projectAll(meetBluePts);
+  const meetAsym2D  = projectAll(meetAsymAllPts);
   const meetPinkPre = meetPink2D.slice(0,mIdx+1).concat([project([meetFrac,meetAsym(meetFrac),0])]);
   const meetBluePre = meetBlue2D.slice(0,mIdx+1).concat([project([meetFrac,meetAsym(meetFrac),0])]);
   const meetAsymPre = meetAsym2D.slice(0,mIdx+1);
   const mergedPts   = meetAsym2D.slice(mIdx);
-
   const colMix=lerpHex(c1(),c2(),0.5);
-  const asymMeetCol =dark?'rgba(255,180,255,0.50)':'rgba(140,0,140,0.32)';
-  const asymMiss1Col=dark?'rgba(120,180,255,0.50)':'rgba(0,60,180,0.30)';
-  const asymMiss2Col=dark?'rgba(120,220,200,0.50)':'rgba(0,120,100,0.30)';
+  const asymMeetCol =dark?'rgba(255,180,255,0.55)':'rgba(140,0,140,0.35)';
+  const asymMissCol=[
+    dark?'rgba(120,200,255,0.55)':'rgba(0,80,200,0.35)',
+    dark?'rgba(120,255,180,0.55)':'rgba(0,160,80,0.35)',
+    dark?'rgba(255,220,100,0.55)':'rgba(160,100,0,0.35)',
+  ];
 
   if(isMeet){
-    polyline(miss1Pink2D,c1(),1.2,ghostCurve);
-    polyline(miss1Blue2D,c2(),1.2,ghostCurve);
-    polyline(miss2Pink2D,c1(),1.2,ghostCurve);
-    polyline(miss2Blue2D,c2(),1.2,ghostCurve);
-    polyline(meetAsymPre,asymMeetCol,1,1,[5,9]);
+    for(let ci=0;ci<3;ci++){
+      polyline(projectAll(missDataLive[ci].pink),c1(),1.1,ghost);
+      polyline(projectAll(missDataLive[ci].blue),c2(),1.1,ghost);
+    }
+    polyline(meetAsymPre,asymMeetCol,1.2,1,[5,9]);
     polyline(meetPinkPre,c1(),2.2,1);
     polyline(meetBluePre,c2(),2.2,1);
     polyline(mergedPts,colMix,2.5,1);
     const dot=project([meetFrac,meetAsym(meetFrac),0]);
-    ctx.beginPath(); ctx.arc(dot[0],dot[1],4.5,0,Math.PI*2);
-    ctx.fillStyle=colMix; ctx.fill();
+    ctx.beginPath(); ctx.arc(dot[0],dot[1],4.5,0,Math.PI*2); ctx.fillStyle=colMix; ctx.fill();
     ctx.save(); ctx.globalAlpha=0.7;
     ctx.fillStyle=dark?'rgba(255,150,255,0.9)':'rgba(160,0,160,0.65)';
-    ctx.font='10px -apple-system,BlinkMacSystemFont,sans-serif';
-    ctx.textAlign='center';
-    ctx.fillText('They meet',dot[0],dot[1]-11);
-    ctx.restore();
-  } else if(isMiss1){
-    polyline(meetPinkPre,c1(),1.2,ghostCurve);
-    polyline(meetBluePre,c2(),1.2,ghostCurve);
-    polyline(mergedPts,colMix,1.2,ghostCurve);
-    polyline(miss2Pink2D,c1(),1.2,ghostCurve);
-    polyline(miss2Blue2D,c2(),1.2,ghostCurve);
-    polyline(miss1Asym2D,asymMiss1Col,1,1,[5,9]);
-    polyline(miss1Pink2D,c1(),2.2,1);
-    polyline(miss1Blue2D,c2(),2.2,1);
+    ctx.font='10px -apple-system,BlinkMacSystemFont,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('They meet',dot[0],dot[1]-11); ctx.restore();
   } else {
-    polyline(meetPinkPre,c1(),1.2,ghostCurve);
-    polyline(meetBluePre,c2(),1.2,ghostCurve);
-    polyline(mergedPts,colMix,1.2,ghostCurve);
-    polyline(miss1Pink2D,c1(),1.2,ghostCurve);
-    polyline(miss1Blue2D,c2(),1.2,ghostCurve);
-    polyline(miss2Asym2D,asymMiss2Col,1,1,[5,9]);
-    polyline(miss2Pink2D,c1(),2.2,1);
-    polyline(miss2Blue2D,c2(),2.2,1);
+    polyline(meetPinkPre,c1(),1.1,ghost);
+    polyline(meetBluePre,c2(),1.1,ghost);
+    polyline(mergedPts,colMix,1.1,ghost);
+    for(let ci=0;ci<3;ci++){
+      if(ci===missIdx) continue;
+      polyline(projectAll(missDataLive[ci].pink),c1(),1.1,ghost);
+      polyline(projectAll(missDataLive[ci].blue),c2(),1.1,ghost);
+    }
+    const d=missDataLive[missIdx];
+    polyline(projectAll(d.asym),asymMissCol[missIdx],1.2,1,[5,9]);
+    polyline(projectAll(d.pink),c1(),2.2,1);
+    polyline(projectAll(d.blue),c2(),2.2,1);
   }
 }
 
+// ── Slider wiring ─────────────────────────────────────────────────────────────
+function wireSlider(id, cb){
+  document.getElementById(id).addEventListener('input', e=>{ cb(parseFloat(e.target.value)); draw(); });
+}
+wireSlider('p1-agency', v=>{ p1Agency=v; });
+wireSlider('p1-circum', v=>{ p1Circum=v; });
+wireSlider('p2-agency', v=>{ p2Agency=v; });
+wireSlider('p2-circum', v=>{ p2Circum=v; });
+
+// Colour the person labels to match their curve
+document.getElementById('p1-label').style.color = isDark()?'#ff66ff':'#cc00aa';
+document.getElementById('p2-label').style.color = isDark()?'#44aaff':'#0055cc';
+
+// ── Mouse/touch rotation ──────────────────────────────────────────────────────
 canvas.addEventListener('mousedown',e=>{dragging=true;lastMX=e.clientX;lastMY=e.clientY;});
 window.addEventListener('mousemove',e=>{
   if(!dragging)return;
-  rotY+=(e.clientX-lastMX)*0.008;
-  rotX+=(e.clientY-lastMY)*0.008;
+  rotY+=(e.clientX-lastMX)*0.008; rotX+=(e.clientY-lastMY)*0.008;
   rotX=Math.max(-Math.PI/2,Math.min(Math.PI/2,rotX));
-  lastMX=e.clientX;lastMY=e.clientY;
-  draw();
+  lastMX=e.clientX; lastMY=e.clientY; draw();
 });
 window.addEventListener('mouseup',()=>{dragging=false;});
 canvas.addEventListener('touchstart',e=>{dragging=true;lastMX=e.touches[0].clientX;lastMY=e.touches[0].clientY;},{passive:true});
 window.addEventListener('touchmove',e=>{
   if(!dragging)return;
-  rotY+=(e.touches[0].clientX-lastMX)*0.008;
-  rotX+=(e.touches[0].clientY-lastMY)*0.008;
+  rotY+=(e.touches[0].clientX-lastMX)*0.008; rotX+=(e.touches[0].clientY-lastMY)*0.008;
   rotX=Math.max(-Math.PI/2,Math.min(Math.PI/2,rotX));
-  lastMX=e.touches[0].clientX;lastMY=e.touches[0].clientY;
-  draw();
+  lastMX=e.touches[0].clientX; lastMY=e.touches[0].clientY; draw();
 },{passive:true});
-window.addEventListener('touchend',()=>dragging=false);
+window.addEventListener('touchend',()=>{dragging=false;});
 
 document.getElementById('btn-meet').addEventListener('click',()=>{
   active='meet';
-  document.querySelectorAll('.sbtn').forEach(b=>b.classList.remove('active'));
   document.getElementById('btn-meet').classList.add('active');
+  document.getElementById('btn-miss').classList.remove('active');
   draw();
 });
-document.getElementById('btn-miss1').addEventListener('click',()=>{
-  active='miss1';
-  document.querySelectorAll('.sbtn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('btn-miss1').classList.add('active');
-  draw();
-});
-document.getElementById('btn-miss2').addEventListener('click',()=>{
-  active='miss2';
-  document.querySelectorAll('.sbtn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('btn-miss2').classList.add('active');
+document.getElementById('btn-miss').addEventListener('click',()=>{
+  if(active==='miss') missIdx=nextMissIdx();
+  active='miss';
+  document.getElementById('btn-miss').classList.add('active');
+  document.getElementById('btn-meet').classList.remove('active');
   draw();
 });
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{
+  document.getElementById('p1-label').style.color=isDark()?'#ff66ff':'#cc00aa';
+  document.getElementById('p2-label').style.color=isDark()?'#44aaff':'#0055cc';
+  draw();
+});
 draw();
 </script>
