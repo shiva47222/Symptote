@@ -120,19 +120,51 @@ function curveForCase(ci, isPink){
   const axis = axes[ci];
   const pts = [];
 
+  const isMeet = (ci === 0);
+
   for(let i=0;i<=300;i++){
     const t = i/300;
 
-    let y;
-    if(ci === 0){
-      // meet case
-      const asym = meetAsym(t);
-      y = asym + (isPink ? 0.4 : -0.4) * (1-t);
-      if(t>0.63) y = asym;
+    let asym;
+
+    if(isMeet){
+      asym = meetAsym(t);
     } else {
-      const asym = missAsymVal(ci-1, t);
-      y = asym + (isPink ? 0.6 : -0.6) * (1/(1+t*8));
+      asym = missAsymVal(ci-1, t);
     }
+
+    /* ---------------- CORE ASYMPTOTE ENFORCEMENT ---------------- */
+
+    let direction = isPink ? 1 : -1;
+
+    /* infinite start approximation */
+    const infinityScale = 18 / (0.02 + t);
+
+    let baseDistance;
+
+    if(isMeet){
+      // both converge ONLY at t=1
+      const decay = Math.pow(1 - t, 2.2);
+      baseDistance = direction * infinityScale * decay;
+    } else {
+      // never touches asymptote
+      const decay = Math.exp(-t * 4.5);
+      baseDistance = direction * infinityScale * decay;
+
+      // hard safety clamp: prevent crossing asymptote
+      const safetyGap = direction > 0 ? 0.03 : -0.03;
+      const current = asym + baseDistance;
+
+      if(direction > 0){
+        baseDistance = Math.max(baseDistance, safetyGap);
+      } else {
+        baseDistance = Math.min(baseDistance, safetyGap);
+      }
+    }
+
+    /* ---------------- FINAL POSITION ---------------- */
+
+    const y = asym + baseDistance;
 
     pts.push(project(embed(axis, t, y)));
   }
