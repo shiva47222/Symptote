@@ -1,64 +1,58 @@
 <!DOCTYPE html>
-<html lang="en" style="background: transparent; margin: 0; padding: 0;">
+<html lang="en" style="margin:0;padding:0;background:transparent;">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <title>Symptote</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    html, body {
-      background: transparent !important;
-      margin: 0;
-      padding: 0;
-      min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    .sw {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 1.5rem 0 1rem;
-      gap: 16px;
-    }
-    canvas#sym {
-      display: block;
-      width: 100%;
-      max-width: 1440px;
-      touch-action: none;
-    }
-    .hint { font-size: 11px; color: #aaa; }
-  </style>
-</head>
-<body>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Symptote</title>
 
-<div class="sw">
-  <canvas id="sym"></canvas>
-  <div class="hint">Drag to rotate · tap to change story</div>
-</div>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="sym"></canvas>
 
 <script>
-const canvas = document.getElementById('sym');
-const ctx = canvas.getContext('2d');
+const canvas = document.getElementById("sym");
+const ctx = canvas.getContext("2d");
 
-const W = 1440, H = 1000;
-canvas.width = W; canvas.height = H;
-
-/* ---------------- existing helpers unchanged ---------------- */
-
-function seededRand(seed, idx){
-  let x = Math.sin(seed*9301 + idx*49297 + 233)*93177;
-  return x - Math.floor(x);
+function resize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
 }
+window.addEventListener("resize", resize);
+resize();
+
+/* ---------------- CORE CONSTANTS ---------------- */
 
 const TOTAL_CASES = 50;
+const N = 300;
+const ts = Array.from({length:N+1}, (_,i)=>i/N);
 
-/* ---------------- NEW: 50 radial time axes ---------------- */
+let currentCase = Math.floor(Math.random()*TOTAL_CASES);
 
-const axes = Array.from({length: TOTAL_CASES}, (_,i)=>{
+/* ---------------- 50 RADIAL AXES ---------------- */
+
+const axes = Array.from({length:TOTAL_CASES}, (_,i)=>{
   const phi = Math.acos(1 - 2*(i+0.5)/TOTAL_CASES);
   const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-
   return [
     Math.sin(phi)*Math.cos(theta),
     Math.sin(phi)*Math.sin(theta),
@@ -66,14 +60,34 @@ const axes = Array.from({length: TOTAL_CASES}, (_,i)=>{
   ];
 });
 
-/* ---------------- case system ---------------- */
+/* ---------------- RANDOM ---------------- */
 
-let currentCase = Math.floor(Math.random()*TOTAL_CASES);
+function seededRand(seed, idx){
+  let x = Math.sin(seed*9301 + idx*49297 + 233)*93177;
+  return x - Math.floor(x);
+}
 
-/* ---------------- projection system updated ---------------- */
+/* ---------------- ASYMPTOTES ---------------- */
+
+function missAsymVal(ci, t){
+  const s = (i)=>seededRand(ci+7,i);
+  const type = Math.floor(s(0)*3);
+
+  if(type===0)
+    return 0.5 - 1.1/(1+Math.exp(-14*(t-(0.25+s(1)*0.25))));
+  if(type===1)
+    return (-0.15+s(2)*0.1) + (0.3+s(3)*0.2)*Math.exp(-5*t)*Math.sin(t*(15+s(4)*8));
+
+  return (-0.35+s(5)*0.2) + (0.7+s(6)*0.4)*(t<0.45 ? t/0.45 : 1-(t-0.45)/0.55);
+}
+
+function meetAsym(t){
+  return 0.18*Math.sin(t*Math.PI)*0.5 + 0.06*t - 0.04;
+}
+
+/* ---------------- PROJECT ---------------- */
 
 let rotX=0.38, rotY=-0.55;
-const cx=W/2, cy=H/2+10;
 
 function rotate([x,y,z]){
   const cY=Math.cos(rotY), sY=Math.sin(rotY);
@@ -87,165 +101,163 @@ function project(pt){
   const [x,y,z]=rotate(pt);
   const sc=360, fov=840;
   const d=fov/(fov+z*sc*0.5+sc*0.8);
-  return [cx+x*sc*d, cy-y*sc*d];
+  return [innerWidth/2 + x*sc*d, innerHeight/2 - y*sc*d];
 }
 
-/* ---------------- KEY CHANGE: axis-based embedding ---------------- */
+/* ---------------- EMBED IN AXIS ---------------- */
 
-function embed(axis, t, y){
+function embed(axis,t,y){
   return [
-    axis[0] * t,
-    axis[1] * t + y*0.6,
-    axis[2] * t
+    axis[0]*t,
+    axis[1]*t + y*0.6,
+    axis[2]*t
   ];
 }
 
-/* ---------------- your original math preserved ---------------- */
+/* ---------------- STAGE 3 ASYMPTOTIC RULES ---------------- */
 
-function missAsymVal(ci, t){
-  const s = (idx) => seededRand(ci+7, idx);
-  const type = Math.floor(s(0)*3);
-  if(type===0) return 0.5 - 1.1/(1+Math.exp(-14*(t-(0.25+s(1)*0.25))));
-  if(type===1) return (-0.15+s(2)*0.1) + (0.3+s(3)*0.2)*Math.exp(-5*t)*Math.sin(t*(15+s(4)*8));
-  return (-0.35+s(5)*0.2) + (0.7+s(6)*0.4)*(t<0.45 ? t/0.45 : 1-(t-0.45)/0.55);
-}
-
-function meetAsym(t){
-  return 0.18*Math.sin(t*Math.PI)*0.5 + 0.06*t - 0.04;
-}
-
-/* ---------------- simple curve generator (axis aware) ---------------- */
-
-function curveForCase(ci, isPink){
+function curveForCase(ci,isPink){
   const axis = axes[ci];
   const pts = [];
 
-  const isMeet = (ci === 0);
+  const isMeet = ci===0;
 
-  for(let i=0;i<=300;i++){
-    const t = i/300;
+  const STEP = 2; // performance optimization
 
-    let asym;
+  for(let i=0;i<=N;i+=STEP){
+    const t = i/N;
 
-    if(isMeet){
-      asym = meetAsym(t);
-    } else {
-      asym = missAsymVal(ci-1, t);
-    }
+    let asym = isMeet ? meetAsym(t) : missAsymVal(ci-1,t);
 
-    /* ---------------- CORE ASYMPTOTE ENFORCEMENT ---------------- */
+    const direction = isPink ? 1 : -1;
+    const infinityScale = 18/(0.02+t);
 
-    let direction = isPink ? 1 : -1;
-
-    /* infinite start approximation */
-    const infinityScale = 18 / (0.02 + t);
-
-    let baseDistance;
+    let base;
 
     if(isMeet){
-      // both converge ONLY at t=1
-      const decay = Math.pow(1 - t, 2.2);
-      baseDistance = direction * infinityScale * decay;
+      const decay = Math.pow(1-t,2.2);
+      base = direction * infinityScale * decay;
     } else {
-      // never touches asymptote
-      const decay = Math.exp(-t * 4.5);
-      baseDistance = direction * infinityScale * decay;
-
-      // hard safety clamp: prevent crossing asymptote
-      const safetyGap = direction > 0 ? 0.03 : -0.03;
-      const current = asym + baseDistance;
-
-      if(direction > 0){
-        baseDistance = Math.max(baseDistance, safetyGap);
-      } else {
-        baseDistance = Math.min(baseDistance, safetyGap);
-      }
+      const decay = Math.exp(-t*4.5);
+      base = direction * infinityScale * decay;
     }
 
-    /* ---------------- FINAL POSITION ---------------- */
+    const y = asym + base;
 
-    const y = asym + baseDistance;
-
-    pts.push(project(embed(axis, t, y)));
+    pts.push(project(embed(axis,t,y)));
   }
 
   return pts;
 }
 
-/* ---------------- rendering ---------------- */
+/* ---------------- DRAW ---------------- */
 
 function draw(){
-  ctx.clearRect(0,0,W,H);
+  ctx.clearRect(0,0,innerWidth,innerHeight);
 
-  const isMeet = currentCase === 0;
+  for(let ci=0;ci<TOTAL_CASES;ci++){
 
-  /* -------- draw ALL ghost cases -------- */
+    const p = curveForCase(ci,true);
+    const b = curveForCase(ci,false);
 
-  for(let ci=0; ci<TOTAL_CASES; ci++){
-    if(ci === currentCase) continue;
+    const fade = Math.exp(-Math.abs(ci-currentCase)*0.35);
 
-    const p = curveForCase(ci, true);
-    const b = curveForCase(ci, false);
+    ctx.globalAlpha = ci===currentCase ? 1 : (0.02 + fade*0.08);
 
-    ctx.globalAlpha = 0.08;
-    ctx.strokeStyle = '#cc00aa';
+    ctx.strokeStyle = "#cc00aa";
     ctx.beginPath();
-    p.forEach((pt,i)=> i?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]));
+    p.forEach((pt,i)=>i?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]));
     ctx.stroke();
 
-    ctx.strokeStyle = '#0055cc';
+    ctx.strokeStyle = "#0055cc";
     ctx.beginPath();
-    b.forEach((pt,i)=> i?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]));
+    b.forEach((pt,i)=>i?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]));
     ctx.stroke();
   }
 
-  /* -------- active case -------- */
-
-  const p = curveForCase(currentCase, true);
-  const b = curveForCase(currentCase, false);
-
-  ctx.globalAlpha = 1;
-
-  ctx.strokeStyle = '#cc00aa';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  p.forEach((pt,i)=> i?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]));
-  ctx.stroke();
-
-  ctx.strokeStyle = '#0055cc';
-  ctx.beginPath();
-  b.forEach((pt,i)=> i?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]));
-  ctx.stroke();
-
-  /* -------- meet label -------- */
-
-  if(isMeet){
-    const mid = p[Math.floor(p.length*0.63)];
-    ctx.fillStyle = 'purple';
+  /* meet marker */
+  if(currentCase===0){
+    const mid = curveForCase(0,true)[150];
+    ctx.globalAlpha=1;
+    ctx.fillStyle="purple";
     ctx.beginPath();
     ctx.arc(mid[0],mid[1],6,0,Math.PI*2);
     ctx.fill();
 
-    ctx.fillStyle = 'rgba(120,0,120,0.8)';
-    ctx.font = '18px -apple-system';
+    ctx.fillStyle="rgba(120,0,120,0.8)";
+    ctx.font="16px -apple-system";
     ctx.fillText("They meet", mid[0]+10, mid[1]-10);
   }
 }
 
-/* ---------------- interaction ---------------- */
+/* ---------------- INERTIA SYSTEM (STAGE 4) ---------------- */
 
-canvas.addEventListener('mousedown', e=>{
-  currentCase = Math.floor(Math.random()*TOTAL_CASES);
+let dragging=false;
+let lastX=0,lastY=0;
+let velX=0,velY=0;
+
+const damping = 0.92;
+const sensitivity = 0.006;
+
+function animate(){
+  rotY += velX;
+  rotX += velY;
+
+  velX *= damping;
+  velY *= damping;
+
   draw();
+  requestAnimationFrame(animate);
+}
+animate();
+
+/* ---------------- INPUT ---------------- */
+
+canvas.addEventListener("mousedown",(e)=>{
+  dragging=true;
+  lastX=e.clientX;
+  lastY=e.clientY;
 });
 
-canvas.addEventListener('touchstart', e=>{
-  currentCase = Math.floor(Math.random()*TOTAL_CASES);
-  draw();
+window.addEventListener("mousemove",(e)=>{
+  if(!dragging) return;
+
+  const dx=e.clientX-lastX;
+  const dy=e.clientY-lastY;
+
+  velX += dx*sensitivity;
+  velY += dy*sensitivity;
+
+  lastX=e.clientX;
+  lastY=e.clientY;
+});
+
+window.addEventListener("mouseup",()=>dragging=false);
+
+canvas.addEventListener("touchstart",(e)=>{
+  dragging=true;
+  lastX=e.touches[0].clientX;
+  lastY=e.touches[0].clientY;
 },{passive:false});
 
-draw();
-</script>
+window.addEventListener("touchmove",(e)=>{
+  if(!dragging) return;
 
+  const x=e.touches[0].clientX;
+  const y=e.touches[0].clientY;
+
+  const dx=x-lastX;
+  const dy=y-lastY;
+
+  velX += dx*sensitivity;
+  velY += dy*sensitivity;
+
+  lastX=x;
+  lastY=y;
+},{passive:false});
+
+window.addEventListener("touchend",()=>dragging=false);
+
+</script>
 </body>
 </html>
