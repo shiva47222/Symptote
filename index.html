@@ -127,7 +127,7 @@ function missAngle(ci){ return Math.PI/2 + seededRand(ci+11,0)*Math.PI*0.9; }
 function missPlane(ci,t,v){ const th=missAngle(ci); return [t, v*Math.sin(th), v*Math.cos(th)]; }
 
 const TOTAL_CASES = 50; // 1 meet (case 0) + 49 miss (cases 1–49)
-let currentCase = 0;
+let currentCase = caseOrder[0];
 let caseOrder = [];
 let caseOrderIdx = 0;
 
@@ -140,6 +140,12 @@ function buildCaseOrder(){
   return arr;
 }
 caseOrder = buildCaseOrder();
+  
+// ensure "meet" (case 0) is NOT first
+if (caseOrder[0] === 0) {
+  const swapIdx = 1 + Math.floor(Math.random() * (caseOrder.length - 1));
+  [caseOrder[0], caseOrder[swapIdx]] = [caseOrder[swapIdx], caseOrder[0]];
+}
 
 function nextCase(){
   caseOrderIdx = (caseOrderIdx+1) % TOTAL_CASES;
