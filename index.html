@@ -57,20 +57,26 @@ function bgMix(){ const u=bgU(),l=bgL(); return [(u[0]+l[0])>>1,(u[1]+l[1])>>1,(
 const N = 300, meetFrac = 0.63;
 const ts = Array.from({length: N+1}, (_,i) => i/N);
 
-// Per-case seeded random fluctuation strengths (replacing sliders)
-function caseFluctuation(caseIdx, personIdx){
-  // Returns {agency, circum} strengths seeded per case+person
-  const s = (i) => seededRand(caseIdx * 17 + personIndex * 31, i);
-  const personIndex = personIdx;
-  return {
-    agency: 0.15 + seededRand(caseIdx*17 + personIdx*31, 0) * 0.45,
-    circum:  0.10 + seededRand(caseIdx*17 + personIdx*31, 1) * 0.35
-  };
-}
-
 function seededRand(seed, idx){
   let x = Math.sin(seed*9301 + idx*49297 + 233)*93177;
   return x - Math.floor(x);
+}
+
+// Per-click random seeds for active case and each ghost
+let clickSeeds = []; // clickSeeds[0..48] = ghost seeds; clickSeeds[49] = active case seed
+let isMeetCase = false;
+
+function newClickSeeds(){
+  clickSeeds = Array.from({length: 50}, () => Math.random() * 99991);
+  isMeetCase = Math.random() < (1/50);
+}
+newClickSeeds();
+
+function caseFluctuation(seedVal, personIdx){
+  return {
+    agency: 0.15 + seededRand(seedVal + personIdx*31, 0) * 0.45,
+    circum:  0.10 + seededRand(seedVal + personIdx*31, 1) * 0.35
+  };
 }
 
 function agencyDistortion(t, strength, personSeed){
@@ -101,8 +107,22 @@ function circumDistortion(t, strength, personSeed){
 }
 
 function meetAsym(t){ return 0.18*Math.sin(t*Math.PI)*0.5 + 0.06*t - 0.04; }
-function baseMeetPink(t){ const a=meetAsym(t); return a+(1-a)/(1+t*12); }
-function baseMeetBlue(t){ const a=meetAsym(t); return a+(-1-a)/(1+t*12); }
+
+// Pink starts at +1 (top), converges to asymptote
+function baseMeetPink(t){
+  const a = meetAsym(t);
+  const k = 7;
+  // At t=0: value = 1. Decays toward asymptote a.
+  return a + (1 - meetAsym(0)) * Math.exp(-k * t);
+}
+
+// Blue starts at -1 (bottom), converges to asymptote
+function baseMeetBlue(t){
+  const a = meetAsym(t);
+  const k = 7;
+  // At t=0: value = -1. Rises toward asymptote a.
+  return a + (-1 - meetAsym(0)) * Math.exp(-k * t);
+}
 
 function applyDist(baseVal, asymVal, t, agency, circum, agSeed, cirSeed, side){
   const da = agencyDistortion(t, agency, agSeed) * side;
@@ -110,48 +130,34 @@ function applyDist(baseVal, asymVal, t, agency, circum, agSeed, cirSeed, side){
   const gap = baseVal - asymVal;
   const distorted = gap + da + dc;
   const clamped = side > 0 ? Math.max(0.02, distorted) : Math.min(-0.02, distorted);
-  return asymVal + clamped;
+  return Math.max(-1, Math.min(1, asymVal + clamped));
 }
 
-function missAsymVal(ci, t){
-  const s = (idx) => seededRand(ci+7, idx);
+function missAsymVal(seed, t){
+  const s = (idx) => seededRand(seed+7, idx);
   const type = Math.floor(s(0)*3);
   if(type===0) return 0.5 - 1.1/(1+Math.exp(-14*(t-(0.25+s(1)*0.25))));
   if(type===1) return (-0.15+s(2)*0.1) + (0.3+s(3)*0.2)*Math.exp(-5*t)*Math.sin(t*(15+s(4)*8));
   return (-0.35+s(5)*0.2) + (0.7+s(6)*0.4)*(t<0.45 ? t/0.45 : 1-(t-0.45)/0.55);
 }
-function baseMissPink(ci,t){ const a=missAsymVal(ci,t), k=7+seededRand(ci+3,0)*6; return a+(1-a)/(1+t*k); }
-function baseMissBlue(ci,t){ const a=missAsymVal(ci,t), k=7+seededRand(ci+3,1)*6; return a+(-1-a)/(1+t*k); }
-function missAngle(ci){ return Math.PI/2 + seededRand(ci+11,0)*Math.PI*0.9; }
-function missPlane(ci,t,v){ const th=missAngle(ci); return [t, v*Math.sin(th), v*Math.cos(th)]; }
 
-const TOTAL_CASES = 50; // 1 meet (case 0) + 49 miss (cases 1–49)
-let caseOrder = [];
-let caseOrderIdx = 0;
-
-function buildCaseOrder(){
-  const arr = Array.from({length: TOTAL_CASES}, (_,i) => i);
-  for(let i=arr.length-1; i>0; i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [arr[i],arr[j]] = [arr[j],arr[i]];
-  }
-  return arr;
+// Miss pink starts at +1, miss blue starts at -1
+function baseMissPink(seed, t){
+  const a = missAsymVal(seed, t);
+  const k = 7 + seededRand(seed+3, 0) * 6;
+  return a + (1 - missAsymVal(seed, 0)) * Math.exp(-k * t);
 }
-caseOrder = buildCaseOrder();
-  
-// ensure "meet" (case 0) is NOT first
-if (caseOrder[0] === 0) {
-  const swapIdx = 1 + Math.floor(Math.random() * (caseOrder.length - 1));
-  [caseOrder[0], caseOrder[swapIdx]] = [caseOrder[swapIdx], caseOrder[0]];
+function baseMissBlue(seed, t){
+  const a = missAsymVal(seed, t);
+  const k = 7 + seededRand(seed+3, 1) * 6;
+  return a + (-1 - missAsymVal(seed, 0)) * Math.exp(-k * t);
 }
 
-let currentCase = caseOrder[0];
+function missAngle(seed){ return Math.PI/2 + seededRand(seed+11,0)*Math.PI*0.9; }
+function missPlane(seed,t,v){ const th=missAngle(seed); return [t, v*Math.sin(th), v*Math.cos(th)]; }
 
-function nextCase(){
-  caseOrderIdx = (caseOrderIdx+1) % TOTAL_CASES;
-  if(caseOrderIdx === 0) caseOrder = buildCaseOrder();
-  currentCase = caseOrder[caseOrderIdx];
-}
+function nextCase(){ newClickSeeds(); }
+
 
 let rotX=0.38, rotY=-0.55;
 let dragging=false, dragMoved=false, lastMX=0, lastMY=0, downMX=0, downMY=0;
@@ -206,20 +212,16 @@ function draw(){
   const ghost = 0.09;
   const bgSteps = 60;
   const mIdx = Math.round(meetFrac*N);
-  const isMeet = currentCase === 0;
-  const missCI = currentCase - 1; // 0–48 for cases 1–49
+  const isMeet = isMeetCase;
+  const activeSeed = clickSeeds[49];
 
   const [uR,uG,uB] = bgU();
   const [lR,lG,lB] = bgL();
   const [mR,mG,mB] = bgMix();
 
-  // Get per-case random fluctuation strengths
-  const f1 = caseFluctuation(currentCase, 0);
-  const f2 = caseFluctuation(currentCase, 1);
-  const p1Agency = f1.agency, p1Circum = f1.circum;
-  const p2Agency = f2.agency, p2Circum = f2.circum;
+  const f1 = caseFluctuation(activeSeed, 0);
+  const f2 = caseFluctuation(activeSeed, 1);
 
-  // Active background only
   if(isMeet){
     for(let i=0; i<bgSteps; i++){
       const i0=Math.floor(i/bgSteps*N), i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
@@ -236,10 +238,10 @@ function draw(){
   } else {
     for(let i=0; i<bgSteps; i++){
       const i0=Math.floor(i/bgSteps*N), i1=Math.min(Math.floor((i+1)/bgSteps*N),N);
-      const av0=missAsymVal(missCI,ts[i0]), av1=missAsymVal(missCI,ts[i1]);
-      const top0=project(missPlane(missCI,ts[i0],1)), top1=project(missPlane(missCI,ts[i1],1));
-      const bot0=project(missPlane(missCI,ts[i0],-1)), bot1=project(missPlane(missCI,ts[i1],-1));
-      const a0=project(missPlane(missCI,ts[i0],av0)), a1=project(missPlane(missCI,ts[i1],av1));
+      const av0=missAsymVal(activeSeed,ts[i0]), av1=missAsymVal(activeSeed,ts[i1]);
+      const top0=project(missPlane(activeSeed,ts[i0],1)), top1=project(missPlane(activeSeed,ts[i1],1));
+      const bot0=project(missPlane(activeSeed,ts[i0],-1)), bot1=project(missPlane(activeSeed,ts[i1],-1));
+      const a0=project(missPlane(activeSeed,ts[i0],av0)), a1=project(missPlane(activeSeed,ts[i1],av1));
       fillQuad(top0,top1,a1,a0, uR,uG,uB, wa);
       fillQuad(a0,a1,bot1,bot0, lR,lG,lB, wa);
     }
@@ -254,17 +256,18 @@ function draw(){
   ctx.fillText('Time', axX[0]+36, axX[1]+8);
   ctx.fillText('t = 0', origin[0]-44, origin[1]+8);
 
-  // Precompute meet curves (case 0, seeded per its own fluctuation)
-  const mf1 = caseFluctuation(0, 0), mf2 = caseFluctuation(0, 1);
-  const p1AgS=1, p1CiS=2, p2AgS=3, p2CiS=4;
+  const mf1 = caseFluctuation(activeSeed, 0), mf2 = caseFluctuation(activeSeed, 1);
+  const p1AgS=activeSeed+1, p1CiS=activeSeed+2, p2AgS=activeSeed+3, p2CiS=activeSeed+4;
   const meetPinkPts = ts.map(t=>{
     const base=baseMeetPink(t), asym=meetAsym(t);
     if(t>meetFrac) return [t,asym,0];
+    if(t===0) return [t,1,0];
     return [t, applyDist(base,asym,t,mf1.agency,mf1.circum,p1AgS,p1CiS,+1), 0];
   });
   const meetBluePts = ts.map(t=>{
     const base=baseMeetBlue(t), asym=meetAsym(t);
     if(t>meetFrac) return [t,asym,0];
+    if(t===0) return [t,-1,0];
     return [t, applyDist(base,asym,t,mf2.agency,mf2.circum,p2AgS,p2CiS,-1), 0];
   });
   const meetAsymPts = ts.map(t=>[t,meetAsym(t),0]);
@@ -273,16 +276,15 @@ function draw(){
   const asymMeetCol = 'rgba(140,0,140,0.35)';
 
   if(isMeet){
-    // Ghost all miss curves
-    for(let ci=0; ci<49; ci++){
-      const gf1=caseFluctuation(ci+1,0), gf2=caseFluctuation(ci+1,1);
-      const s1=ci*100+1, s2=ci*100+2, s3=ci*100+3, s4=ci*100+4;
-      const mpPts = ts.map(t=>{ const base=baseMissPink(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,gf1.agency,gf1.circum,s1,s2,+1)); });
-      const mbPts = ts.map(t=>{ const base=baseMissBlue(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,gf2.agency,gf2.circum,s3,s4,-1)); });
+    for(let gi=0; gi<49; gi++){
+      const gs = clickSeeds[gi];
+      const gf1=caseFluctuation(gs,0), gf2=caseFluctuation(gs,1);
+      const s1=gs+1, s2=gs+2, s3=gs+3, s4=gs+4;
+      const mpPts = ts.map(t=>{ if(t===0) return missPlane(gs,0,1); const base=baseMissPink(gs,t),asym=missAsymVal(gs,t); return missPlane(gs,t,applyDist(base,asym,t,gf1.agency,gf1.circum,s1,s2,+1)); });
+      const mbPts = ts.map(t=>{ if(t===0) return missPlane(gs,0,-1); const base=baseMissBlue(gs,t),asym=missAsymVal(gs,t); return missPlane(gs,t,applyDist(base,asym,t,gf2.agency,gf2.circum,s3,s4,-1)); });
       polyline(projectAll(mpPts), c1(), 1.5, ghost);
       polyline(projectAll(mbPts), c2(), 1.5, ghost);
     }
-    // Active meet curves
     const meetPinkPre = meetPinkPts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
     const meetBluePre = meetBluePts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
     polyline(projectAll(meetAsymPts.slice(0,mIdx+1)), asymMeetCol, 2, 1, [5,9]);
@@ -299,36 +301,31 @@ function draw(){
     ctx.fillText('They meet', dot[0], dot[1]-22);
     ctx.restore();
   } else {
-    // Ghost meet curves
     const meetPinkPre = meetPinkPts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
     const meetBluePre = meetBluePts.slice(0,mIdx+1).concat([[meetFrac,meetAsym(meetFrac),0]]);
     polyline(projectAll(meetPinkPre), c1(), 1.5, ghost);
     polyline(projectAll(meetBluePre), c2(), 1.5, ghost);
     polyline(projectAll(mergedPts), colMix, 1.5, ghost);
-    // Ghost other miss curves
-    for(let ci=0; ci<49; ci++){
-      if(ci===missCI) continue;
-      const gf1=caseFluctuation(ci+1,0), gf2=caseFluctuation(ci+1,1);
-      const s1=ci*100+1, s2=ci*100+2, s3=ci*100+3, s4=ci*100+4;
-      const mpPts = ts.map(t=>{ const base=baseMissPink(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,gf1.agency,gf1.circum,s1,s2,+1)); });
-      const mbPts = ts.map(t=>{ const base=baseMissBlue(ci,t),asym=missAsymVal(ci,t); return missPlane(ci,t,applyDist(base,asym,t,gf2.agency,gf2.circum,s3,s4,-1)); });
+    for(let gi=0; gi<49; gi++){
+      const gs = clickSeeds[gi];
+      const gf1=caseFluctuation(gs,0), gf2=caseFluctuation(gs,1);
+      const s1=gs+1, s2=gs+2, s3=gs+3, s4=gs+4;
+      const mpPts = ts.map(t=>{ if(t===0) return missPlane(gs,0,1); const base=baseMissPink(gs,t),asym=missAsymVal(gs,t); return missPlane(gs,t,applyDist(base,asym,t,gf1.agency,gf1.circum,s1,s2,+1)); });
+      const mbPts = ts.map(t=>{ if(t===0) return missPlane(gs,0,-1); const base=baseMissBlue(gs,t),asym=missAsymVal(gs,t); return missPlane(gs,t,applyDist(base,asym,t,gf2.agency,gf2.circum,s3,s4,-1)); });
       polyline(projectAll(mpPts), c1(), 1.5, ghost);
       polyline(projectAll(mbPts), c2(), 1.5, ghost);
     }
-    // Active miss curves
-    const af1=caseFluctuation(currentCase,0), af2=caseFluctuation(currentCase,1);
-    const s1=missCI*100+1, s2=missCI*100+2, s3=missCI*100+3, s4=missCI*100+4;
     const asymMissCol = 'rgba(0,80,200,0.35)';
-    const asymMissPts = ts.map(t=>missPlane(missCI,t,missAsymVal(missCI,t)));
-    const activePinkPts = ts.map(t=>{ const base=baseMissPink(missCI,t),asym=missAsymVal(missCI,t); return missPlane(missCI,t,applyDist(base,asym,t,af1.agency,af1.circum,s1,s2,+1)); });
-    const activeBluePts = ts.map(t=>{ const base=baseMissBlue(missCI,t),asym=missAsymVal(missCI,t); return missPlane(missCI,t,applyDist(base,asym,t,af2.agency,af2.circum,s3,s4,-1)); });
+    const asymMissPts = ts.map(t=>missPlane(activeSeed,t,missAsymVal(activeSeed,t)));
+    const s1=activeSeed+1, s2=activeSeed+2, s3=activeSeed+3, s4=activeSeed+4;
+    const activePinkPts = ts.map(t=>{ if(t===0) return missPlane(activeSeed,0,1); const base=baseMissPink(activeSeed,t),asym=missAsymVal(activeSeed,t); return missPlane(activeSeed,t,applyDist(base,asym,t,f1.agency,f1.circum,s1,s2,+1)); });
+    const activeBluePts = ts.map(t=>{ if(t===0) return missPlane(activeSeed,0,-1); const base=baseMissBlue(activeSeed,t),asym=missAsymVal(activeSeed,t); return missPlane(activeSeed,t,applyDist(base,asym,t,f2.agency,f2.circum,s3,s4,-1)); });
     polyline(projectAll(asymMissPts), asymMissCol, 2, 1, [5,9]);
     polyline(projectAll(activePinkPts), c1(), 4, 1);
     polyline(projectAll(activeBluePts), c2(), 4, 1);
   }
 }
 
-// Input handling
 canvas.addEventListener('mousedown', e=>{
   dragging=true; dragMoved=false;
   downMX=e.clientX; downMY=e.clientY;
